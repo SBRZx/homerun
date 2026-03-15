@@ -88,17 +88,73 @@ def fetch_article(url: str) -> dict:
         return {}
 
 
+def is_tweet_url(url: str) -> bool:
+    """Check if a URL points to another tweet/post."""
+    if not url:
+        return False
+    return bool(re.search(r'(x\.com|twitter\.com)/\w+/status/\d+', url))
+
+
+def fetch_tweet_via_embed(url: str) -> dict:
+    """Fetch tweet content using the public embed/oembed API (no auth needed)."""
+    import urllib.request
+    import urllib.parse
+
+    try:
+        oembed_url = "https://publish.twitter.com/oembed?" + urllib.parse.urlencode({
+            "url": url,
+            "omit_script": "true",
+        })
+        req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        # The HTML contains the tweet text in a blockquote
+        html = data.get("html") or ""
+        # Extract text from the blockquote
+        text = ""
+        match = re.search(r'<blockquote[^>]*>(.*?)</blockquote>', html, re.DOTALL)
+        if match:
+            inner = match.group(1)
+            # Remove HTML tags but keep text
+            inner = re.sub(r'<br\s*/?>', '\n', inner)
+            inner = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>[^<]*</a>', r'\1', inner)
+            inner = re.sub(r'<[^>]+>', '', inner)
+            inner = re.sub(r'&amp;', '&', inner)
+            inner = re.sub(r'&lt;', '<', inner)
+            inner = re.sub(r'&gt;', '>', inner)
+            inner = re.sub(r'&quot;', '"', inner)
+            text = inner.strip()
+
+        author = data.get("author_name") or ""
+        author_url = data.get("author_url") or ""
+
+        return {
+            "text": text,
+            "author": author,
+            "author_url": author_url,
+            "url": url,
+        }
+    except Exception as e:
+        print(f"    Could not fetch tweet: {e}")
+        return {}
+
+
 def is_article_url(url: str) -> bool:
     """Check if a URL is likely an article (not an image, video, social profile)."""
     if not url:
         return False
 
     skip_domains = {
-        "x.com", "twitter.com", "instagram.com", "facebook.com",
+        "instagram.com", "facebook.com",
         "tiktok.com", "youtube.com", "youtu.be", "t.co",
         "pbs.twimg.com", "abs.twimg.com", "video.twimg.com",
         "pic.twitter.com",
     }
+
+    # Tweet URLs are handled separately
+    if is_tweet_url(url):
+        return False
 
     try:
         parsed = urlparse(url)
@@ -246,6 +302,28 @@ def enrich_file(md_path: Path, tmp_dir: str, stats: dict) -> None:
 
     additions = []
 
+    # --- Fetch linked tweets ---
+    tweet_urls = [u for u in urls if is_tweet_url(u)]
+    # Skip the bookmark's own URL (it's in the Links section)
+    source_match = re.search(r'source: "([^"]*)"', content)
+    own_url = source_match.group(1) if source_match else ""
+    tweet_urls = [u for u in tweet_urls if u != own_url]
+
+    for url in tweet_urls[:3]:  # limit to 3 linked tweets
+        print(f"    Fetching linked tweet: {url[:80]}...")
+        tweet_data = fetch_tweet_via_embed(url)
+        if tweet_data and tweet_data.get("text"):
+            text = tweet_data["text"].strip()
+            author = tweet_data.get("author") or ""
+            additions.append(
+                f"\n## Linked Post{' by ' + author if author else ''}\n\n"
+                f"*Source: [{url}]({url})*\n\n"
+                f"> {text}\n"
+            )
+            stats.setdefault("tweets_fetched", 0)
+            stats["tweets_fetched"] += 1
+            time.sleep(0.5)
+
     # --- Fetch articles ---
     article_urls = [u for u in urls if is_article_url(u)]
     for url in article_urls[:3]:  # limit to 3 articles per bookmark
@@ -365,6 +443,7 @@ def main():
     print(f"\n{'='*50}")
     print(f"Enrichment complete!")
     print(f"  Files enriched:     {stats['enriched']}")
+    print(f"  Linked tweets:      {stats.get('tweets_fetched', 0)}")
     print(f"  Articles fetched:   {stats['articles']}")
     print(f"  Videos transcribed: {stats['transcripts']}")
     print(f"  Already processed:  {stats['skipped']}")
