@@ -187,7 +187,7 @@ def bookmark_to_md(bm: dict) -> str:
 
     lines = [
         "---",
-        f"title: {yaml_escape(f'{posted_by} - {date_str or \"undated\"}')}",
+        f"title: {yaml_escape(posted_by + ' - ' + (date_str or 'undated'))}",
         f"source: {yaml_escape(tweet_url)}",
         f"author: {yaml_escape(nickname)}",
         f"author_display: {yaml_escape(display_name)}",
