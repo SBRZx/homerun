@@ -164,8 +164,10 @@
       mediaItems.push({
         media_url: media.media_url_https || media.media_url || "",
         type: media.type || "photo",
+        alt_text: media.ext_alt_text || media.alt_text || "",
         video_src: videoSrc,
         video_url: videoSrc.length > 0 ? videoSrc[videoSrc.length - 1] : "",
+        duration_ms: (media.video_info && media.video_info.duration_millis) || 0,
       });
     }
 
@@ -259,6 +261,47 @@
       }
     }
 
+    // Poll data
+    var pollData = null;
+    if (card && cardBindings.length > 0) {
+      var choices = [];
+      for (var pi = 1; pi <= 4; pi++) {
+        var choiceLabel = "";
+        var choiceCount = "";
+        for (var pb = 0; pb < cardBindings.length; pb++) {
+          if (cardBindings[pb].key === "choice" + pi + "_label" && cardBindings[pb].value) {
+            choiceLabel = cardBindings[pb].value.string_value || "";
+          }
+          if (cardBindings[pb].key === "choice" + pi + "_count" && cardBindings[pb].value) {
+            choiceCount = cardBindings[pb].value.string_value || "";
+          }
+        }
+        if (choiceLabel) {
+          choices.push({ label: choiceLabel, count: choiceCount });
+        }
+      }
+      if (choices.length > 0) {
+        pollData = { choices: choices };
+      }
+    }
+
+    // Thread / conversation context
+    var conversationId = legacy.conversation_id_str || "";
+    var inReplyTo = legacy.in_reply_to_status_id_str || "";
+    var inReplyToUser = legacy.in_reply_to_screen_name || "";
+    var isThread = conversationId && conversationId === (legacy.id_str || result.rest_id) && legacy.reply_count > 0;
+    var isSelfThread = inReplyToUser && inReplyToUser === (userLegacy.screen_name || "");
+
+    // Engagement stats (useful for sorting by relevance)
+    var stats = {
+      likes: legacy.favorite_count || 0,
+      retweets: legacy.retweet_count || 0,
+      replies: legacy.reply_count || 0,
+      quotes: legacy.quote_count || 0,
+      bookmarks: legacy.bookmark_count || 0,
+      views: (result.views && result.views.count) ? parseInt(result.views.count) : 0,
+    };
+
     return {
       id: legacy.id_str || result.rest_id || "",
       tweet_id: legacy.id_str || result.rest_id || "",
@@ -272,6 +315,15 @@
       tweet_url: "https://x.com/" + (userLegacy.screen_name || "unknown") + "/status/" + (legacy.id_str || result.rest_id),
       tweet_media: mediaItems,
       embedded_urls: embeddedUrls,
+      poll: pollData,
+      conversation_id: conversationId,
+      in_reply_to: inReplyTo ? {
+        status_id: inReplyTo,
+        user: inReplyToUser,
+        url: "https://x.com/" + inReplyToUser + "/status/" + inReplyTo,
+      } : null,
+      is_thread: isThread || isSelfThread,
+      engagement: stats,
       labels: [],
       folder_id: "",
       notes: "",

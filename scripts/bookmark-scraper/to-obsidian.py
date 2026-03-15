@@ -227,6 +227,19 @@ def bookmark_to_md(bm: dict) -> str:
         lines.append("*(no text content)*")
     lines.append("")
 
+    # --- Thread / Reply context ---
+    in_reply_to = bm.get("in_reply_to")
+    if in_reply_to and isinstance(in_reply_to, dict):
+        reply_user = in_reply_to.get("user") or ""
+        reply_url = in_reply_to.get("url") or ""
+        if reply_user:
+            lines.append(f"*Replying to [@{reply_user}]({reply_url})*")
+            lines.append("")
+
+    if bm.get("is_thread"):
+        lines.append("*This is part of a thread*")
+        lines.append("")
+
     # --- Media ---
     if tweet_media:
         lines.append("## Media")
@@ -237,20 +250,46 @@ def bookmark_to_md(bm: dict) -> str:
                 media_type = m.get("type") or "unknown"
                 video_src = m.get("video_src") or []
                 video_url = m.get("video_url") or ""
+                alt_text = m.get("alt_text") or m.get("ext_alt_text") or ""
+                duration_ms = m.get("duration_ms") or 0
 
                 if media_url:
                     if media_type == "video" or video_url or video_src:
-                        lines.append(f"- Video: [{media_url}]({media_url})")
+                        duration_str = ""
+                        if duration_ms:
+                            secs = int(duration_ms) // 1000
+                            duration_str = f" ({secs // 60}:{secs % 60:02d})"
+                        lines.append(f"- Video{duration_str}: [{media_url}]({media_url})")
                         if video_url:
                             lines.append(f"  - Direct: [{video_url}]({video_url})")
                         for vs in (video_src if isinstance(video_src, list) else []):
                             if vs:
                                 lines.append(f"  - Source: [{vs}]({vs})")
+                    elif media_type == "animated_gif":
+                        lines.append(f"- GIF: ![gif]({media_url})")
                     else:
                         lines.append(f"- ![media]({media_url})")
+
+                    if alt_text:
+                        lines.append(f"  - *Alt: {alt_text}*")
             elif isinstance(m, str) and m:
                 lines.append(f"- ![media]({m})")
         lines.append("")
+
+    # --- Poll ---
+    poll = bm.get("poll")
+    if poll and isinstance(poll, dict):
+        choices = poll.get("choices") or []
+        if choices:
+            lines.append("## Poll")
+            lines.append("")
+            for choice in choices:
+                if isinstance(choice, dict):
+                    label = choice.get("label") or ""
+                    count = choice.get("count") or ""
+                    count_str = f" — {count}" if count else ""
+                    lines.append(f"- {label}{count_str}")
+            lines.append("")
 
     # --- Quoted tweet ---
     quoted = bm.get("quoted_tweet")
@@ -264,9 +303,12 @@ def bookmark_to_md(bm: dict) -> str:
             if q_author:
                 lines.append(f"**@{q_author}**")
             if q_text:
-                lines.append(f"> {q_text.strip()}")
+                # Use blockquote for each line of quoted text
+                for q_line in q_text.strip().split("\n"):
+                    lines.append(f"> {q_line}")
             if q_url:
-                lines.append(f"- [Original]({q_url})")
+                lines.append(f"")
+                lines.append(f"[Original]({q_url})")
             lines.append("")
 
     # --- Embedded URLs / Articles ---
@@ -283,6 +325,23 @@ def bookmark_to_md(bm: dict) -> str:
             elif isinstance(eu, str) and eu:
                 lines.append(f"- [{eu}]({eu})")
         lines.append("")
+
+    # --- Engagement stats ---
+    engagement = bm.get("engagement")
+    if engagement and isinstance(engagement, dict):
+        views = engagement.get("views") or 0
+        likes = engagement.get("likes") or 0
+        retweets = engagement.get("retweets") or 0
+        if views or likes or retweets:
+            parts = []
+            if views:
+                parts.append(f"{views:,} views")
+            if likes:
+                parts.append(f"{likes:,} likes")
+            if retweets:
+                parts.append(f"{retweets:,} retweets")
+            lines.append(f"*{' | '.join(parts)}*")
+            lines.append("")
 
     # --- Links ---
     lines.append("## Links")
