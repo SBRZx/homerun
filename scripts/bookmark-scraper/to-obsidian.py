@@ -79,8 +79,26 @@ CATEGORY_KEYWORDS = {
 }
 
 
+def _normalize_labels(labels) -> list[str]:
+    """Convert labels to a flat list of strings, handling dicts/nested."""
+    out: list[str] = []
+    if isinstance(labels, str):
+        return [l.strip() for l in labels.split(",") if l.strip()]
+    if not isinstance(labels, list):
+        return []
+    for item in labels:
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, dict):
+            out.append(str(item.get("name") or item.get("label") or item.get("title") or item.get("text") or ""))
+        else:
+            out.append(str(item))
+    return [l for l in out if l]
+
+
 def detect_categories(text: str, labels: list[str]) -> list[str]:
     """Return matching category names based on content + labels."""
+    labels = _normalize_labels(labels)
     blob = (text + " " + " ".join(labels)).lower()
     hits: list[str] = []
     for cat, keywords in CATEGORY_KEYWORDS.items():
@@ -145,9 +163,7 @@ def bookmark_to_md(bm: dict) -> str:
     tweet_url = str(bm.get("tweet_url") or "")
     tweet_date = str(bm.get("tweet_date") or "")
     social_network = bm.get("social_network")
-    labels = bm.get("labels") or []
-    if isinstance(labels, str):
-        labels = [l.strip() for l in labels.split(",") if l.strip()]
+    labels = _normalize_labels(bm.get("labels") or [])
     folder_id = bm.get("folder_id") or ""
     notes = str(bm.get("notes") or "")
     profile_url = str(bm.get("posted_by_profile_url") or "")
@@ -328,9 +344,7 @@ def convert(json_path: str, output_dir: str) -> None:
         else:
             content_text = ""
 
-        labels = bm.get("labels") or []
-        if isinstance(labels, str):
-            labels = [l.strip() for l in labels.split(",") if l.strip()]
+        labels = _normalize_labels(bm.get("labels") or [])
 
         categories = detect_categories(content_text, labels)
         primary_cat = categories[0]
