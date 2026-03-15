@@ -66,8 +66,14 @@
     return resp;
   };
 
-  // --- Phase 2: Auto-scroll to load all bookmarks ---
-  console.log("[2/2] Auto-scrolling to load all bookmarks...\n");
+  // --- Phase 2: Capture what's already on screen ---
+  console.log("[2/3] Capturing bookmarks already visible on page...");
+  await sleep(2000);  // wait for page to fully render
+  extractFromDOM();
+  console.log("  Captured " + totalFound + " bookmarks from current view");
+
+  // --- Phase 3: Auto-scroll to load all bookmarks ---
+  console.log("[3/3] Auto-scrolling to load all bookmarks...\n");
 
   var lastCount = 0;
   var stableRounds = 0;
@@ -93,7 +99,11 @@
     lastCount = totalFound;
   }
 
-  console.log("\nScrolling complete. Total bookmarks: " + totalFound);
+  console.log("\nScrolling complete. Scrolling back to top to catch any missed...");
+  window.scrollTo(0, 0);
+  await sleep(2000);
+  extractFromDOM();
+  console.log("Final total: " + totalFound + " bookmarks");
 
   // --- Download ---
   if (totalFound > 0) {
