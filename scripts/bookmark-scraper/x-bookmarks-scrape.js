@@ -169,6 +169,77 @@
       });
     }
 
+    // Full text: prefer note_tweet (long tweets / articles) over legacy.full_text
+    var fullText = legacy.full_text || "";
+    if (result.note_tweet && result.note_tweet.note_tweet_results && result.note_tweet.note_tweet_results.result) {
+      var noteResult = result.note_tweet.note_tweet_results.result;
+      if (noteResult.text) {
+        fullText = noteResult.text;
+      }
+    }
+
+    // Extract URLs/links from entities (articles, external links, etc.)
+    var embeddedUrls = [];
+    var entities = legacy.entities || {};
+    var urlEntities = entities.urls || [];
+    for (var u = 0; u < urlEntities.length; u++) {
+      var urlObj = urlEntities[u];
+      embeddedUrls.push({
+        short_url: urlObj.url || "",
+        expanded_url: urlObj.expanded_url || "",
+        display_url: urlObj.display_url || "",
+        title: urlObj.title || "",
+      });
+      // Replace t.co links in text with real URLs
+      if (urlObj.url && urlObj.expanded_url) {
+        fullText = fullText.split(urlObj.url).join(urlObj.expanded_url);
+      }
+    }
+
+    // Also check note_tweet entities for URLs
+    if (result.note_tweet && result.note_tweet.note_tweet_results && result.note_tweet.note_tweet_results.result) {
+      var noteEntities = result.note_tweet.note_tweet_results.result.entity_set || {};
+      var noteUrls = noteEntities.urls || [];
+      for (var nu = 0; nu < noteUrls.length; nu++) {
+        var nUrlObj = noteUrls[nu];
+        if (nUrlObj.expanded_url) {
+          embeddedUrls.push({
+            short_url: nUrlObj.url || "",
+            expanded_url: nUrlObj.expanded_url || "",
+            display_url: nUrlObj.display_url || "",
+            title: nUrlObj.title || "",
+          });
+          if (nUrlObj.url && nUrlObj.expanded_url) {
+            fullText = fullText.split(nUrlObj.url).join(nUrlObj.expanded_url);
+          }
+        }
+      }
+    }
+
+    // Check for X articles (card with article URL)
+    var card = result.card || {};
+    var cardLegacy = card.legacy || {};
+    var cardBindings = cardLegacy.binding_values || [];
+    var articleUrl = "";
+    var articleTitle = "";
+    for (var cb = 0; cb < cardBindings.length; cb++) {
+      var binding = cardBindings[cb];
+      if (binding.key === "card_url" && binding.value) {
+        articleUrl = binding.value.string_value || "";
+      }
+      if (binding.key === "title" && binding.value) {
+        articleTitle = binding.value.string_value || "";
+      }
+    }
+    if (articleUrl) {
+      embeddedUrls.push({
+        short_url: "",
+        expanded_url: articleUrl,
+        display_url: articleUrl,
+        title: articleTitle,
+      });
+    }
+
     // Quoted tweet
     var quotedTweet = null;
     if (result.quoted_status_result && result.quoted_status_result.result) {
@@ -176,8 +247,12 @@
       if (qr.__typename === "TweetWithVisibilityResults") qr = qr.tweet;
       if (qr && qr.legacy) {
         var qUser = qr.core && qr.core.user_results && qr.core.user_results.result && qr.core.user_results.result.legacy || {};
+        var qText = qr.legacy.full_text || "";
+        if (qr.note_tweet && qr.note_tweet.note_tweet_results && qr.note_tweet.note_tweet_results.result) {
+          qText = qr.note_tweet.note_tweet_results.result.text || qText;
+        }
         quotedTweet = {
-          text: qr.legacy.full_text || "",
+          text: qText,
           posted_by: qUser.screen_name || "",
           tweet_url: "https://x.com/" + (qUser.screen_name || "unknown") + "/status/" + qr.legacy.id_str,
         };
@@ -192,10 +267,11 @@
       posted_by_nickname: userLegacy.name || "",
       posted_by_profile_url: "https://x.com/" + (userLegacy.screen_name || ""),
       tweet_content: {
-        text: legacy.full_text || "",
+        text: fullText,
       },
       tweet_url: "https://x.com/" + (userLegacy.screen_name || "unknown") + "/status/" + (legacy.id_str || result.rest_id),
       tweet_media: mediaItems,
+      embedded_urls: embeddedUrls,
       labels: [],
       folder_id: "",
       notes: "",
@@ -227,9 +303,28 @@
 
         if (allBookmarks[tweetId]) continue;
 
-        // Get text
+        // Get text — grab innerHTML to preserve links, then extract text + URLs
         var textEl = article.querySelector("[data-testid='tweetText']");
-        var text = textEl ? textEl.textContent.trim() : "";
+        var text = "";
+        var domUrls = [];
+        if (textEl) {
+          text = textEl.textContent.trim();
+          // Extract all links from the tweet text (articles, external links)
+          var textLinks = textEl.querySelectorAll("a[href]");
+          for (var tl = 0; tl < textLinks.length; tl++) {
+            var linkHref = textLinks[tl].href || "";
+            var linkText = textLinks[tl].textContent.trim();
+            // Skip internal x.com links (hashtags, mentions) unless they're article links
+            if (linkHref && (!linkHref.includes("x.com") || linkHref.includes("/i/") || linkText.startsWith("http"))) {
+              domUrls.push({
+                short_url: "",
+                expanded_url: linkHref,
+                display_url: linkText,
+                title: "",
+              });
+            }
+          }
+        }
 
         // Get display name
         var nameEl = article.querySelector("[data-testid='User-Name']");
@@ -276,6 +371,7 @@
           tweet_content: { text: text },
           tweet_url: "https://x.com/" + username + "/status/" + tweetId,
           tweet_media: mediaItems,
+          embedded_urls: domUrls,
           labels: [],
           folder_id: "",
           notes: "",

@@ -269,6 +269,21 @@ def bookmark_to_md(bm: dict) -> str:
                 lines.append(f"- [Original]({q_url})")
             lines.append("")
 
+    # --- Embedded URLs / Articles ---
+    embedded_urls = bm.get("embedded_urls") or []
+    if embedded_urls:
+        lines.append("## Linked Content")
+        lines.append("")
+        for eu in embedded_urls:
+            if isinstance(eu, dict):
+                url = eu.get("expanded_url") or eu.get("short_url") or ""
+                title = eu.get("title") or eu.get("display_url") or url
+                if url:
+                    lines.append(f"- [{title}]({url})")
+            elif isinstance(eu, str) and eu:
+                lines.append(f"- [{eu}]({eu})")
+        lines.append("")
+
     # --- Links ---
     lines.append("## Links")
     lines.append("")
